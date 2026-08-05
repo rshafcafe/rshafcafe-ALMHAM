@@ -6,6 +6,8 @@
 <title>الإدارة الشخصية</title>
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;900&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --bg:#F6F3EE; --ink:#1F2A26; --ink-soft:#5C6B65; --line:#DCD5C8;
@@ -309,28 +311,39 @@
 </div>
 
 <script>
-/* ============ Storage polyfill (works outside Claude.ai too) ============ */
-if(!window.storage){
-  window.storage = {
-    async get(key, shared){
-      const v = localStorage.getItem(key);
-      if(v===null){ const err=new Error('not found'); throw err; }
-      return {key, value:v, shared};
-    },
-    async set(key, value, shared){
-      localStorage.setItem(key, value);
-      return {key, value, shared};
-    },
-    async delete(key, shared){
-      localStorage.removeItem(key);
-      return {key, deleted:true, shared};
-    },
-    async list(prefix, shared){
-      const keys = Object.keys(localStorage).filter(k=> !prefix || k.startsWith(prefix));
-      return {keys, prefix, shared};
-    }
-  };
-}
+/* ============ Storage: Firestore sync (same data on every device) ============ */
+const firebaseConfig = {
+  apiKey: "AIzaSyD3FyisPQCmz2XEHtcra4oqNlYGRl-8BU8",
+  authDomain: "personal-manager-e84ab.firebaseapp.com",
+  projectId: "personal-manager-e84ab",
+  storageBucket: "personal-manager-e84ab.firebasestorage.app",
+  messagingSenderId: "709020497995",
+  appId: "1:709020497995:web:a3073eea8947714f8435ce"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const appdataCol = db.collection('appdata');
+
+window.storage = {
+  async get(key, shared){
+    const doc = await appdataCol.doc(key).get();
+    if(!doc.exists){ throw new Error('not found'); }
+    return {key, value: doc.data().value, shared};
+  },
+  async set(key, value, shared){
+    await appdataCol.doc(key).set({value});
+    return {key, value, shared};
+  },
+  async delete(key, shared){
+    await appdataCol.doc(key).delete();
+    return {key, deleted:true, shared};
+  },
+  async list(prefix, shared){
+    const snap = await appdataCol.get();
+    const keys = snap.docs.map(d=>d.id).filter(k=> !prefix || k.startsWith(prefix));
+    return {keys, prefix, shared};
+  }
+};
 
 /* ============ Shared ============ */
 const STORAGE_KEY = 'work-entries';
