@@ -183,6 +183,19 @@
     width:100%;margin-top:10px;background:#1D6F42;color:#fff;border:none;border-radius:10px;
     padding:12px;font-family:inherit;font-weight:700;font-size:14px;cursor:pointer;
   }
+
+  .speed-pill{padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;}
+  .speed-fast{background:#EAF1E2;color:#5C7A3A;}
+  .speed-medium{background:#F3E7D8;color:#8A5A28;}
+  .speed-slow{background:#F3E1DC;color:#8A3F2C;}
+  .speed-summary{display:flex;gap:8px;margin-bottom:14px;}
+  .speed-box{flex:1;text-align:center;border-radius:10px;padding:10px 6px;}
+  .speed-box .n{font-size:18px;font-weight:900;}
+  .speed-box .l{font-size:10.5px;margin-top:2px;}
+  .task-mini{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px;}
+  .task-mini:last-child{border-bottom:none;}
+  .task-mini .txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .task-mini .days{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-soft);white-space:nowrap;}
 </style>
 </head>
 <body>
@@ -250,6 +263,9 @@
 
       <button id="saveBtn" class="btn-primary">إضافة</button>
     </div>
+
+    <div class="section-label" style="margin-top:0;">فلترة حسب التصنيف</div>
+    <div class="chips" id="filterChips" style="margin-bottom:14px;"></div>
 
     <div class="stats" id="stats"></div>
     <div id="listContent" class="loading">جارِ التحميل...</div>
@@ -361,6 +377,7 @@ let editSelectedSub = null;
 let editSelectedEffort = 2;
 let editingId = null;
 let reportMonth = new Date();
+let filterCategory = null; // null = show all
 
 const colors = ['c1','c2','c3','c4','c5','c6','c7'];
 function colorFor(cat){
@@ -369,6 +386,18 @@ function colorFor(cat){
   return `var(--${colors[Math.abs(h)]})`;
 }
 const effortLabel = {1:'خفيف',2:'متوسط',3:'كبير'};
+
+function taskDurationDays(e){
+  if(!e.doneAt) return null;
+  const ms = e.doneAt - e.createdAt;
+  return Math.max(0, Math.round(ms / 86400000));
+}
+function classifySpeed(days){
+  if(days===null) return null;
+  if(days<=2) return {label:'سريع', cls:'speed-fast'};
+  if(days<=5) return {label:'متوسط', cls:'speed-medium'};
+  return {label:'بطيء', cls:'speed-slow'};
+}
 
 document.getElementById('todayDate').textContent = new Date().toLocaleDateString('ar-SA',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
 document.getElementById('taskDate').value = new Date().toISOString().slice(0,10);
@@ -548,20 +577,44 @@ document.getElementById('saveBtn').addEventListener('click', async ()=>{
 updateNotifBanner();
 
 /* ============ List rendering (important first, done last) ============ */
+function renderFilterChips(){
+  const el = document.getElementById('filterChips');
+  const counts = {};
+  entries.forEach(e=>{ counts[e.category] = (counts[e.category]||0)+1; });
+  const chipsHtml = [`<div class="chip ${filterCategory===null?'selected':''}" data-filter="__all__">الكل (${entries.length})</div>`]
+    .concat(categories.map(c=>{
+      const cnt = counts[c.name]||0;
+      return `<div class="chip ${filterCategory===c.name?'selected':''}" data-filter="${escapeHtml(c.name)}" style="${filterCategory===c.name?`background:${colorFor(c.name)};border-color:${colorFor(c.name)};`:''}">${escapeHtml(c.name)} (${cnt})</div>`;
+    }));
+  el.innerHTML = chipsHtml.join('');
+  el.querySelectorAll('.chip').forEach(chip=>{
+    chip.addEventListener('click', ()=>{
+      const f = chip.dataset.filter;
+      filterCategory = (f==='__all__') ? null : (filterCategory===f ? null : f);
+      renderFilterChips();
+      renderList();
+    });
+  });
+}
+
 function renderList(){
+  renderFilterChips();
   const el = document.getElementById('listContent');
   const statsEl = document.getElementById('stats');
-  const doneCount = entries.filter(e=>e.done).length;
-  statsEl.innerHTML = `<span><b>${entries.length}</b> إجمالي</span><span>·</span><span><b>${doneCount}</b> منجزة</span><span>·</span><span><b>${entries.length-doneCount}</b> متبقية</span>`;
+  const visibleEntries = filterCategory ? entries.filter(e=>e.category===filterCategory) : entries;
+  const doneCount = visibleEntries.filter(e=>e.done).length;
+  statsEl.innerHTML = `<span><b>${visibleEntries.length}</b> إجمالي</span><span>·</span><span><b>${doneCount}</b> منجزة</span><span>·</span><span><b>${visibleEntries.length-doneCount}</b> متبقية</span>`;
 
-  if(entries.length===0){
-    el.innerHTML = `<div class="empty"><div class="big">🗂️</div>لا يوجد سجل بعد<br>أضف أول عمل من الأعلى</div>`;
+  if(visibleEntries.length===0){
+    el.innerHTML = filterCategory
+      ? `<div class="empty"><div class="big">🔍</div>ما فيه أعمال بتصنيف "${escapeHtml(filterCategory)}"</div>`
+      : `<div class="empty"><div class="big">🗂️</div>لا يوجد سجل بعد<br>أضف أول عمل من الأعلى</div>`;
     return;
   }
 
-  const important = entries.filter(e=>!e.done && e.reminderTime).sort((a,b)=>b.createdAt-a.createdAt);
-  const normal = entries.filter(e=>!e.done && !e.reminderTime).sort((a,b)=>b.createdAt-a.createdAt);
-  const done = entries.filter(e=>e.done).sort((a,b)=>b.createdAt-a.createdAt);
+  const important = visibleEntries.filter(e=>!e.done && e.reminderTime).sort((a,b)=>b.createdAt-a.createdAt);
+  const normal = visibleEntries.filter(e=>!e.done && !e.reminderTime).sort((a,b)=>b.createdAt-a.createdAt);
+  const done = visibleEntries.filter(e=>e.done).sort((a,b)=>b.createdAt-a.createdAt);
 
   function taskHtml(e, importantFlag){
     const catColor = colorFor(e.category);
@@ -603,7 +656,11 @@ function renderList(){
   el.querySelectorAll('[data-action=toggle]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const t=entries.find(x=>x.id===btn.dataset.id);
-      if(t){ t.done=!t.done; renderList(); await saveEntries(); }
+      if(t){
+        t.done=!t.done;
+        if(t.done){ t.doneAt = Date.now(); } else { delete t.doneAt; }
+        renderList(); await saveEntries();
+      }
     });
   });
   el.querySelectorAll('.icon-btn.del').forEach(btn=>{
@@ -737,6 +794,29 @@ function renderReport(){
       <p class="note">"نقاط الجهد" = مجموع تقييمات (خفيف=1، متوسط=2، كبير=3) للأعمال المنجزة فقط.</p>
       <button class="excel-btn" id="exportExcelBtn">⬇️ تصدير الشهر كملف إكسل</button>
     </div>
+
+    <div class="card">
+      <label style="margin-bottom:14px;">⏱️ سرعة تنفيذ المهام (من الإضافة للإنجاز)</label>
+      ${(() => {
+        const withSpeed = monthEntries.map(e=>({e, days:taskDurationDays(e), speed:classifySpeed(taskDurationDays(e))})).filter(x=>x.speed);
+        if(withSpeed.length===0) return `<p class="note">ما فيه بيانات كافية لحساب السرعة لهذا الشهر (تحتاج تاريخ إضافة وتاريخ إنجاز).</p>`;
+        const fastCount = withSpeed.filter(x=>x.speed.label==='سريع').length;
+        const medCount = withSpeed.filter(x=>x.speed.label==='متوسط').length;
+        const slowCount = withSpeed.filter(x=>x.speed.label==='بطيء').length;
+        const summary = `<div class="speed-summary">
+          <div class="speed-box speed-fast"><div class="n">${fastCount}</div><div class="l">سريع (≤2 يوم)</div></div>
+          <div class="speed-box speed-medium"><div class="n">${medCount}</div><div class="l">متوسط (3-5 أيام)</div></div>
+          <div class="speed-box speed-slow"><div class="n">${slowCount}</div><div class="l">بطيء (6+ أيام)</div></div>
+        </div>`;
+        const list = withSpeed.sort((a,b)=>b.days-a.days).map(x=>`
+          <div class="task-mini">
+            <span class="txt">${escapeHtml(x.e.text)}</span>
+            <span class="days">${x.days} يوم</span>
+            <span class="speed-pill ${x.speed.cls}">${x.speed.label}</span>
+          </div>`).join('');
+        return summary + list;
+      })()}
+    </div>
   `;
   document.getElementById('exportExcelBtn').addEventListener('click', exportMonthExcel);
 }
@@ -744,14 +824,20 @@ function renderReport(){
 function exportMonthExcel(){
   const monthEntries = getMonthDoneEntries();
   if(monthEntries.length===0) return;
-  const rows = monthEntries.map(e=>({
-    'التاريخ': e.date,
-    'العمل': e.text,
-    'التصنيف الرئيسي': e.category,
-    'التصنيف الفرعي': e.subcategory || '',
-    'حجم الجهد': effortLabel[e.effort],
-    'نقاط الجهد': e.effort
-  }));
+  const rows = monthEntries.map(e=>{
+    const days = taskDurationDays(e);
+    const speed = classifySpeed(days);
+    return {
+      'التاريخ': e.date,
+      'العمل': e.text,
+      'التصنيف الرئيسي': e.category,
+      'التصنيف الفرعي': e.subcategory || '',
+      'حجم الجهد': effortLabel[e.effort],
+      'نقاط الجهد': e.effort,
+      'مدة التنفيذ (أيام)': days===null?'':days,
+      'السرعة': speed?speed.label:''
+    };
+  });
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   const monthName = reportMonth.toLocaleDateString('ar-SA',{year:'numeric',month:'long'});
@@ -799,7 +885,8 @@ function renderCatList(){
       categories.splice(i,1);
       await saveCategories();
       if(selectedCategory && !categories.find(c=>c.name===selectedCategory)) selectedCategory=categories[0].name;
-      renderCatList(); renderChips();
+      if(filterCategory && !categories.find(c=>c.name===filterCategory)) filterCategory=null;
+      renderCatList(); renderChips(); renderList();
     });
   });
   el.querySelectorAll('[data-role=delsub]').forEach(btn=>{
