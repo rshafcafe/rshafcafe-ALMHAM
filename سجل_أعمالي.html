@@ -309,6 +309,29 @@
 </div>
 
 <script>
+/* ============ Storage polyfill (works outside Claude.ai too) ============ */
+if(!window.storage){
+  window.storage = {
+    async get(key, shared){
+      const v = localStorage.getItem(key);
+      if(v===null){ const err=new Error('not found'); throw err; }
+      return {key, value:v, shared};
+    },
+    async set(key, value, shared){
+      localStorage.setItem(key, value);
+      return {key, value, shared};
+    },
+    async delete(key, shared){
+      localStorage.removeItem(key);
+      return {key, deleted:true, shared};
+    },
+    async list(prefix, shared){
+      const keys = Object.keys(localStorage).filter(k=> !prefix || k.startsWith(prefix));
+      return {keys, prefix, shared};
+    }
+  };
+}
+
 /* ============ Shared ============ */
 const STORAGE_KEY = 'work-entries';
 const CATS_KEY = 'work-categories';
@@ -343,28 +366,38 @@ function findCat(name){ return categories.find(c=>c.name===name); }
 
 /* ============ Load / Save ============ */
 async function loadAll(){
-  try{ const res=await window.storage.get(STORAGE_KEY,false); entries = res&&res.value?JSON.parse(res.value):[]; }
-  catch(e){ entries=[]; }
+  try{ const res=await window.storage.get(STORAGE_KEY,false); entries = res&&res.value?JSON.parse(res.value):null; }
+  catch(e){ entries=null; }
 
   try{ const res=await window.storage.get(CATS_KEY,false); categories = res&&res.value?JSON.parse(res.value):null; }
   catch(e){ categories=null; }
 
   if(!categories||categories.length===0){
     categories=[
-      {name:'صيانة', subs:[]},
-      {name:'اجتماعات', subs:[]},
-      {name:'مراسلات', subs:[]},
-      {name:'طلبات', subs:[]},
-      {name:'مشاريع', subs:[]},
-      {name:'متابعة', subs:[]},
-      {name:'أخرى', subs:[]}
+      {name:'رشف', subs:['رامي','هيثم','حسابات','مستودع','معمل','مشتريات','فودكس','اوردر','اخرى']},
+      {name:'ارميما', subs:['احمد','حسابات','فرع الرس','فرع رياض الخبراء','فودكس','اخرى']},
+      {name:'البيت', subs:['مقاضي','صيانة','طلعه','هديه','مشوار','اخرى']},
+      {name:'اعمال شخصية', subs:['ترفيه','مشاوير','استراحة','تطبيقات AI','اخرى']},
+      {name:'عمل يحتاج متابعة', subs:[]}
     ];
     await saveCategories();
   } else if(typeof categories[0] === 'string'){
-    // migrate old flat format
     categories = categories.map(c=>({name:c, subs:[]}));
     await saveCategories();
   }
+
+  if(!entries){
+    entries=[
+      {id:'seed1', text:'توظيف سعوديين سعوده', category:'رشف', subcategory:'اخرى', effort:2, date:'2026-08-04', done:false, createdAt:Date.now()-6},
+      {id:'seed2', text:'تحليل شينات التوصيل واتخاذ قرار التوصيل ارميما', category:'اعمال شخصية', subcategory:'تطبيقات AI', effort:2, date:'2026-08-04', done:false, createdAt:Date.now()-5},
+      {id:'seed3', text:'قمت بتعديل برنامج الادارة الشخصية', category:'اعمال شخصية', subcategory:'تطبيقات AI', effort:2, date:'2026-08-04', done:false, createdAt:Date.now()-4},
+      {id:'seed4', text:'ارسلت للموظفين المرشحين لتوظيف فرع عنيزة والبكيرية', category:'رشف', subcategory:'اخرى', effort:1, date:'2026-08-04', done:false, createdAt:Date.now()-3},
+      {id:'seed5', text:'عدلت صور 6 مشروبات باردة على جيمناي ورفعتهم على اوردر', category:'رشف', subcategory:'اوردر', effort:2, date:'2026-08-04', done:false, createdAt:Date.now()-2},
+      {id:'seed6', text:'عدلت مسميات خيارات الاضافة وسحبت تقارير توضيح اعداد طلبات التوصيل', category:'رشف', subcategory:'فودكس', effort:2, date:'2026-08-04', done:false, createdAt:Date.now()-1}
+    ];
+    await saveEntries();
+  }
+
   selectedCategory = categories[0].name;
   selectedSub = null;
 
